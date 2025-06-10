@@ -368,6 +368,11 @@ app.post('/webhook/github', async (req, res) => {
         
         console.log(`📋 Event Type: ${eventType}`);
         
+        // Debug: Log payload structure (only in development)
+        if (payload && payload.repository) {
+            console.log(`📊 Repository: ${payload.repository.name}, Ref: ${payload.ref || 'undefined'}, Commits: ${payload.commits ? payload.commits.length : 0}`);
+        }
+        
         // Only handle push events
         if (eventType === 'push') {
             await handleGitHubPush(payload);
@@ -409,10 +414,23 @@ app.post('/webhook/bitbucket', async (req, res) => {
 // Handle GitHub push notifications
 async function handleGitHubPush(payload) {
     try {
+        // Add safety checks for undefined values
+        if (!payload || !payload.repository) {
+            console.log('❌ Invalid GitHub payload - missing repository data');
+            return;
+        }
+
         const repository = payload.repository;
-        const pusher = payload.pusher;
+        const pusher = payload.pusher || payload.sender || { name: 'Unknown', avatar_url: '' };
         const commits = payload.commits || [];
-        const branchName = payload.ref.replace('refs/heads/', '');
+        
+        // Safe branch name extraction
+        let branchName = 'unknown';
+        if (payload.ref && typeof payload.ref === 'string') {
+            branchName = payload.ref.replace('refs/heads/', '');
+        } else if (payload.head_commit && payload.head_commit.id) {
+            branchName = 'main'; // fallback
+        }
         
         console.log(`🔄 Processing GitHub push to ${repository.name} by ${pusher.name}`);
         
@@ -427,12 +445,12 @@ async function handleGitHubPush(payload) {
         const embed = new EmbedBuilder()
             .setColor('#24292e') // GitHub dark color
             .setTitle('📦 GitHub Push Notification')
-            .setDescription(`**Repository:** ${repository.name}\n**Branch:** ${branchName}\n**Pushed by:** ${pusher.name}`)
+            .setDescription(`**Repository:** ${repository.name}\n**Branch:** ${branchName}\n**Pushed by:** ${pusher.name || 'Unknown'}`)
             .addFields(
                 { name: 'Commits', value: `${commits.length} commit(s)`, inline: true },
                 { name: 'Repository', value: `[${repository.full_name}](${repository.html_url})`, inline: true }
             )
-            .setThumbnail(pusher.avatar_url || repository.owner.avatar_url || '')
+            .setThumbnail(pusher.avatar_url || repository.owner?.avatar_url || '')
             .setTimestamp();
         
         // Add commit details (max 5 commits)
@@ -440,9 +458,16 @@ async function handleGitHubPush(payload) {
         const commitsToShow = commits.slice(0, 5);
         
         for (const commit of commitsToShow) {
-            const shortHash = commit.id.substring(0, 7);
-            const message = commit.message.split('\n')[0]; // First line only
-            const commitUrl = commit.url.replace('api.github.com/repos', 'github.com').replace('/commits/', '/commit/');
+            const shortHash = commit.id ? commit.id.substring(0, 7) : 'unknown';
+            const message = commit.message ? commit.message.split('\n')[0] : 'No message'; // First line only
+            
+            // Create GitHub commit URL safely
+            let commitUrl = '#';
+            if (commit.url) {
+                commitUrl = commit.url.replace('api.github.com/repos', 'github.com').replace('/commits/', '/commit/');
+            } else if (repository.html_url && commit.id) {
+                commitUrl = `${repository.html_url}/commit/${commit.id}`;
+            }
             
             commitDetails += `• [\`${shortHash}\`](${commitUrl}) ${message}\n`;
         }
