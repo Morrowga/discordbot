@@ -4,8 +4,8 @@ const fs = require('fs').promises;
 
 // Bot configuration - Railway will use environment variables
 const config = {
-    token: process.env.DISCORD_TOKEN,           // ✅ Safe
-    guildId: process.env.GUILD_ID,              // ✅ Safe
+    token: process.env.DISCORD_TOKEN,
+    guildId: process.env.GUILD_ID,
     attendanceChannelId: process.env.ATTENDANCE_CHANNEL_ID,
     gitChannelId: process.env.GIT_CHANNEL_ID,
     webhookSecret: process.env.WEBHOOK_SECRET || 'default_secret',
@@ -358,6 +358,30 @@ async function handleStatusCheck(message) {
 // BITBUCKET WEBHOOK SYSTEM
 // =============================================================================
 
+// GitHub webhook endpoint
+app.post('/webhook/github', async (req, res) => {
+    try {
+        console.log('📡 Received GitHub webhook');
+        
+        const payload = req.body;
+        const eventType = req.headers['x-github-event'];
+        
+        console.log(`📋 Event Type: ${eventType}`);
+        
+        // Only handle push events
+        if (eventType === 'push') {
+            await handleGitHubPush(payload);
+        } else {
+            console.log(`⏭️ Ignoring event type: ${eventType}`);
+        }
+        
+        res.status(200).send('OK');
+    } catch (error) {
+        console.error('❌ GitHub webhook error:', error);
+        res.status(500).send('Internal Server Error');
+    }
+});
+
 // Bitbucket webhook endpoint
 app.post('/webhook/bitbucket', async (req, res) => {
     try {
@@ -381,6 +405,68 @@ app.post('/webhook/bitbucket', async (req, res) => {
         res.status(500).send('Internal Server Error');
     }
 });
+
+// Handle GitHub push notifications
+async function handleGitHubPush(payload) {
+    try {
+        const repository = payload.repository;
+        const pusher = payload.pusher;
+        const commits = payload.commits || [];
+        const branchName = payload.ref.replace('refs/heads/', '');
+        
+        console.log(`🔄 Processing GitHub push to ${repository.name} by ${pusher.name}`);
+        
+        if (commits.length === 0) {
+            console.log('No commits in push, skipping notification');
+            return;
+        }
+        
+        console.log(`📦 ${commits.length} commits to ${branchName} branch`);
+        
+        // Create embed for the push notification
+        const embed = new EmbedBuilder()
+            .setColor('#24292e') // GitHub dark color
+            .setTitle('📦 GitHub Push Notification')
+            .setDescription(`**Repository:** ${repository.name}\n**Branch:** ${branchName}\n**Pushed by:** ${pusher.name}`)
+            .addFields(
+                { name: 'Commits', value: `${commits.length} commit(s)`, inline: true },
+                { name: 'Repository', value: `[${repository.full_name}](${repository.html_url})`, inline: true }
+            )
+            .setThumbnail(pusher.avatar_url || repository.owner.avatar_url || '')
+            .setTimestamp();
+        
+        // Add commit details (max 5 commits)
+        let commitDetails = '';
+        const commitsToShow = commits.slice(0, 5);
+        
+        for (const commit of commitsToShow) {
+            const shortHash = commit.id.substring(0, 7);
+            const message = commit.message.split('\n')[0]; // First line only
+            const commitUrl = commit.url.replace('api.github.com/repos', 'github.com').replace('/commits/', '/commit/');
+            
+            commitDetails += `• [\`${shortHash}\`](${commitUrl}) ${message}\n`;
+        }
+        
+        if (commitDetails) {
+            embed.addFields({ 
+                name: commits.length > 5 ? `Recent Commits (showing ${commitsToShow.length} of ${commits.length})` : 'Commits',
+                value: commitDetails, 
+                inline: false 
+            });
+        }
+        
+        // Send to git notifications channel
+        const gitChannel = client.channels.cache.get(config.gitChannelId);
+        if (gitChannel) {
+            await gitChannel.send({ embeds: [embed] });
+            console.log(`✅ GitHub notification sent for ${repository.name}/${branchName}`);
+        } else {
+            console.error('❌ Git notification channel not found');
+        }
+    } catch (error) {
+        console.error('❌ Error handling GitHub push:', error);
+    }
+}
 
 // Handle Bitbucket push notifications
 async function handleBitbucketPush(payload) {
@@ -464,13 +550,15 @@ app.get('/', (req, res) => {
         <p>✅ Bot is running successfully!</p>
         <p>📊 Attendance System: Active</p>
         <p>🔧 Git Notifications: Active</p>
-        <p>📡 Webhook endpoint: /webhook/bitbucket</p>
+        <p>📡 GitHub webhook endpoint: /webhook/github</p>
+        <p>📡 Bitbucket webhook endpoint: /webhook/bitbucket</p>
     `);
 });
 
 // Start the Express server
 app.listen(config.port, () => {
     console.log(`🌐 Webhook server running on port ${config.port}`);
+    console.log(`📡 GitHub webhook URL: http://localhost:${config.port}/webhook/github`);
     console.log(`📡 Bitbucket webhook URL: http://localhost:${config.port}/webhook/bitbucket`);
 });
 
