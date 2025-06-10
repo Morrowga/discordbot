@@ -26,7 +26,7 @@ Choose Send me everything or only pushing
 For the Bot, You must enable permissions in each channel or server below
 
 Server Level:
-✅✅ View Channels
+✅ View Channels
 ✅ Send Messages
 ✅ Use External Emojis
 ✅ Embed Links
@@ -35,7 +35,7 @@ Server Level:
 ✅ Add Reactions
 
 Channel Level:
-✅✅ View Channels
+✅ View Channels
 ✅ Send Messages
 ✅ Use External Emojis
 ✅ Embed Links
