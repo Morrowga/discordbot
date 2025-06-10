@@ -42,3 +42,7 @@ Channel Level:
 ✅ Attach Files
 ✅ Read Message History
 ✅ Add Reactions
+
+# Translation
+
+Enable permissions for message permissions for the bot and using MyMemory Translation API For Free
