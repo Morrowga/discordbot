@@ -36,6 +36,66 @@ const attendanceCommands = {
     '退勤': 'off'         // End work
 };
 
+// Translation function using LibreTranslate (FREE)
+async function translateText(text, targetLang = 'en', sourceLang = 'ja') {
+    try {
+        // Use dynamic import for node-fetch (ES module)
+        const fetch = (await import('node-fetch')).default;
+        
+        console.log('🔄 Translating with LibreTranslate...');
+        
+        const response = await fetch('https://libretranslate.com/translate', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+                q: text,
+                source: sourceLang,
+                target: targetLang,
+                format: 'text'
+            }),
+            timeout: 15000 // 15 second timeout
+        });
+        
+        if (!response.ok) {
+            throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+        }
+        
+        const result = await response.json();
+        
+        if (result.translatedText) {
+            console.log('✅ LibreTranslate translation successful');
+            return result.translatedText;
+        } else {
+            console.error('❌ No translation returned:', result);
+            return null;
+        }
+        
+    } catch (error) {
+        console.error('❌ LibreTranslate error:', error.message);
+        return null;
+    }
+}
+
+// Detect if text contains Japanese characters
+function containsJapanese(text) {
+    // Japanese character ranges: Hiragana, Katakana, Kanji
+    const japaneseRegex = /[\u3040-\u309F\u30A0-\u30FF\u4E00-\u9FAF]/;
+    return japaneseRegex.test(text);
+}
+
+// Check if channel should have translation (exclude certain channels)
+function shouldTranslate(channelId) {
+    // Don't translate in these channels
+    const excludedChannels = [
+        config.attendanceChannelId,  // Don't translate attendance commands
+        config.gitChannelId          // Don't translate git notifications
+    ];
+    
+    return !excludedChannels.includes(channelId);
+}
+
 // Load attendance data from file
 async function loadAttendanceData() {
     try {
@@ -80,45 +140,100 @@ client.once('ready', async () => {
 // ATTENDANCE SYSTEM (Japanese Commands)
 // =============================================================================
 
-// Listen for Japanese attendance messages
+// Listen for messages (attendance commands and translation)
 client.on('messageCreate', async message => {
     // Ignore bot messages
     if (message.author.bot) return;
     
-    // Check for status commands first
+    // Handle attendance status commands first
     if (message.content === '状況' || message.content === '確認') {
         await handleStatusCheck(message);
         return;
     }
     
-    // Check if message is one of our attendance commands
-    const command = attendanceCommands[message.content.trim()];
-    if (!command) return;
-    
-    const user = message.author;
-    const today = new Date().toISOString().split('T')[0];
-    const now = new Date();
-    
-    try {
-        switch (command) {
-            case 'start':
-                await handleStart(message, user, today, now);
-                break;
-            case 'break':
-                await handleBreak(message, user, today, now);
-                break;
-            case 'return':
-                await handleReturn(message, user, today, now);
-                break;
-            case 'off':
-                await handleOff(message, user, today, now);
-                break;
+    // Handle attendance commands
+    const attendanceCommand = attendanceCommands[message.content.trim()];
+    if (attendanceCommand) {
+        const user = message.author;
+        const today = new Date().toISOString().split('T')[0];
+        const now = new Date();
+        
+        try {
+            switch (attendanceCommand) {
+                case 'start':
+                    await handleStart(message, user, today, now);
+                    break;
+                case 'break':
+                    await handleBreak(message, user, today, now);
+                    break;
+                case 'return':
+                    await handleReturn(message, user, today, now);
+                    break;
+                case 'off':
+                    await handleOff(message, user, today, now);
+                    break;
+            }
+        } catch (error) {
+            console.error('❌ Error handling attendance:', error);
+            await message.reply('エラーが発生しました。もう一度お試しください。(An error occurred. Please try again.)');
         }
-    } catch (error) {
-        console.error('❌ Error handling attendance:', error);
-        await message.reply('エラーが発生しました。もう一度お試しください。(An error occurred. Please try again.)');
+        return;
+    }
+    
+    // Handle Japanese translation for work channels
+    if (shouldTranslate(message.channel.id) && containsJapanese(message.content)) {
+        try {
+            await handleTranslation(message);
+        } catch (error) {
+            console.error('❌ Error handling translation:', error);
+        }
     }
 });
+
+// Handle automatic translation in thread
+async function handleTranslation(message) {
+    // Skip very short messages or attendance commands
+    if (message.content.length < 3 || attendanceCommands[message.content.trim()]) {
+        return;
+    }
+    
+    console.log(`🌐 Translating Japanese message from ${message.author.username} in #${message.channel.name}`);
+    
+    try {
+        const translatedText = await translateText(message.content);
+        
+        if (translatedText && translatedText !== message.content) {
+            // Create a thread from the original message
+            const thread = await message.startThread({
+                name: '🌐 Translation',
+                autoArchiveDuration: 60, // Auto-archive after 1 hour
+                reason: 'Auto-translation for Japanese message'
+            });
+            
+            // Create translation embed
+            const embed = new EmbedBuilder()
+                .setColor('#4285f4') // Translation blue
+                .setTitle('🌐 English Translation')
+                .setDescription(translatedText)
+                .addFields(
+                    { name: '📝 Original (Japanese)', value: message.content.substring(0, 1000), inline: false },
+                    { name: '👤 Author', value: message.author.username, inline: true },
+                    { name: '⏰ Time', value: message.createdAt.toLocaleString('en-US'), inline: true }
+                )
+                .setFooter({ text: 'Powered by LibreTranslate (Free & Open Source)' })
+                .setTimestamp();
+            
+            // Send translation to thread
+            await thread.send({ embeds: [embed] });
+            
+            console.log(`✅ Translation sent to thread for message from ${message.author.username}`);
+        } else {
+            console.log('⚠️ Translation failed or returned same text');
+        }
+    } catch (error) {
+        console.error('❌ Translation failed:', error);
+    }
+}
 
 // Handle 出勤 (Start work)
 async function handleStart(message, user, today, now) {
@@ -368,9 +483,19 @@ app.post('/webhook/github', async (req, res) => {
         
         console.log(`📋 Event Type: ${eventType}`);
         
-        // Debug: Log payload structure (only in development)
-        if (payload && payload.repository) {
-            console.log(`📊 Repository: ${payload.repository.name}, Ref: ${payload.ref || 'undefined'}, Commits: ${payload.commits ? payload.commits.length : 0}`);
+        // DEBUG: Log the entire payload structure
+        console.log('🔍 DEBUG - Full payload structure:');
+        console.log('Payload keys:', Object.keys(payload || {}));
+        console.log('Payload type:', typeof payload);
+        console.log('Payload content (first 500 chars):', JSON.stringify(payload).substring(0, 500));
+        
+        // DEBUG: Check specific fields
+        if (payload) {
+            console.log('Has repository?', !!payload.repository);
+            console.log('Has ref?', !!payload.ref);
+            console.log('Has commits?', !!payload.commits);
+            console.log('Has pusher?', !!payload.pusher);
+            console.log('Has sender?', !!payload.sender);
         }
         
         // Only handle push events
