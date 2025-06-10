@@ -1,6 +1,7 @@
 const { Client, GatewayIntentBits, EmbedBuilder } = require('discord.js');
 const express = require('express');
 const fs = require('fs').promises;
+const fetch = require('node-fetch');
 
 // Bot configuration - Railway will use environment variables
 const config = {
@@ -39,9 +40,6 @@ const attendanceCommands = {
 // Translation function using LibreTranslate (FREE)
 async function translateText(text, targetLang = 'en', sourceLang = 'ja') {
     try {
-        // Use dynamic import for node-fetch (ES module)
-        const fetch = (await import('node-fetch')).default;
-        
         console.log('🔄 Translating with LibreTranslate...');
         
         const response = await fetch('https://libretranslate.com/translate', {
