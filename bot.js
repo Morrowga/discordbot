@@ -29,14 +29,6 @@ app.use(express.json());
 // Attendance data storage
 let attendanceData = {};
 
-// Japanese attendance commands
-const attendanceCommands = {
-    '出勤': 'start',      // Start work
-    '休憩': 'break',      // Take break  
-    '再開': 'return',     // Return from break
-    '退勤': 'off'         // End work
-};
-
 // Translation function using MyMemory API (FREE, no registration)
 async function translateText(text, targetLang = 'en', sourceLang = 'ja') {
     return new Promise((resolve, reject) => {
@@ -123,6 +115,32 @@ function shouldTranslate(channelId) {
     return !excludedChannels.includes(channelId);
 }
 
+// NEW: Function to check for attendance commands in message content
+function checkForAttendanceCommand(content) {
+    const attendanceCommands = {
+        '出勤': 'start',      // Start work
+        '休憩': 'break',      // Take break  
+        '再開': 'return',     // Return from break
+        '退勤': 'off'         // End work
+    };
+    
+    // Check if any attendance command is present in the message
+    for (const [keyword, command] of Object.entries(attendanceCommands)) {
+        if (content.includes(keyword)) {
+            // Extract the additional text (everything except the attendance keyword)
+            const additionalText = content.replace(keyword, '').trim();
+            
+            return {
+                command: command,
+                keyword: keyword,
+                additionalText: additionalText
+            };
+        }
+    }
+    
+    return null;
+}
+
 // Load attendance data from file
 async function loadAttendanceData() {
     try {
@@ -166,10 +184,10 @@ client.once('ready', async () => {
 });
 
 // =============================================================================
-// ATTENDANCE SYSTEM (Japanese Commands)
+// ATTENDANCE SYSTEM (Japanese Commands) - UPDATED
 // =============================================================================
 
-// Listen for messages (attendance commands and translation)
+// Listen for messages (attendance commands and translation) - UPDATED
 client.on('messageCreate', async message => {
     // Ignore bot messages
     if (message.author.bot) return;
@@ -180,26 +198,30 @@ client.on('messageCreate', async message => {
         return;
     }
     
-    // Handle attendance commands
-    const attendanceCommand = attendanceCommands[message.content.trim()];
-    if (attendanceCommand) {
+    // NEW: Check for attendance commands within the message content
+    const attendanceInfo = checkForAttendanceCommand(message.content);
+    
+    if (attendanceInfo) {
         const user = message.author;
         const today = new Date().toISOString().split('T')[0];
         const now = new Date();
         
         try {
-            switch (attendanceCommand) {
+            // Store any additional text as a report
+            const report = attendanceInfo.additionalText.trim();
+            
+            switch (attendanceInfo.command) {
                 case 'start':
-                    await handleStart(message, user, today, now);
+                    await handleStart(message, user, today, now, report);
                     break;
                 case 'break':
-                    await handleBreak(message, user, today, now);
+                    await handleBreak(message, user, today, now, report);
                     break;
                 case 'return':
-                    await handleReturn(message, user, today, now);
+                    await handleReturn(message, user, today, now, report);
                     break;
                 case 'off':
-                    await handleOff(message, user, today, now);
+                    await handleOff(message, user, today, now, report);
                     break;
             }
         } catch (error) {
@@ -222,7 +244,7 @@ client.on('messageCreate', async message => {
 // Handle automatic translation in thread
 async function handleTranslation(message) {
     // Skip very short messages or attendance commands
-    if (message.content.length < 3 || attendanceCommands[message.content.trim()]) {
+    if (message.content.length < 3 || checkForAttendanceCommand(message.content)) {
         return;
     }
     
@@ -244,8 +266,8 @@ async function handleTranslation(message) {
     }
 }
 
-// Handle 出勤 (Start work)
-async function handleStart(message, user, today, now) {
+// Handle 出勤 (Start work) - UPDATED with report parameter
+async function handleStart(message, user, today, now, report = '') {
     const userId = user.id;
     
     if (!attendanceData[userId]) {
@@ -261,7 +283,10 @@ async function handleStart(message, user, today, now) {
         username: user.username,
         start: now.toISOString(),
         status: 'working',
-        breaks: []
+        breaks: [],
+        reports: {
+            checkIn: report || null
+        }
     };
     
     await saveAttendanceData();
@@ -276,6 +301,11 @@ async function handleStart(message, user, today, now) {
         )
         .setTimestamp();
     
+    // Add report field if there's additional text
+    if (report) {
+        embed.addFields({ name: '報告 (Report)', value: report, inline: false });
+    }
+    
     await message.reply({ embeds: [embed] });
     await message.channel.send('**📊 スプレッドシートに記録しました**');
     
@@ -285,11 +315,11 @@ async function handleStart(message, user, today, now) {
         await attendanceChannel.send({ embeds: [embed] });
     }
     
-    console.log(`✅ ${user.username} checked in at ${now.toLocaleTimeString()}`);
+    console.log(`✅ ${user.username} checked in at ${now.toLocaleTimeString()}${report ? ' with report' : ''}`);
 }
 
-// Handle 休憩 (Break)
-async function handleBreak(message, user, today, now) {
+// Handle 休憩 (Break) - UPDATED with report parameter
+async function handleBreak(message, user, today, now, report = '') {
     const userId = user.id;
     
     if (!attendanceData[userId] || !attendanceData[userId][today] || !attendanceData[userId][today].start) {
@@ -308,7 +338,8 @@ async function handleBreak(message, user, today, now) {
     }
     
     attendanceData[userId][today].breaks.push({
-        start: now.toISOString()
+        start: now.toISOString(),
+        report: report || null
     });
     attendanceData[userId][today].status = 'break';
     
@@ -323,14 +354,19 @@ async function handleBreak(message, user, today, now) {
         )
         .setTimestamp();
     
+    // Add report field if there's additional text
+    if (report) {
+        embed.addFields({ name: '進捗報告 (Progress Report)', value: report, inline: false });
+    }
+    
     await message.reply({ embeds: [embed] });
     await message.channel.send('**📊 スプレッドシートに記録しました**');
     
-    console.log(`🟡 ${user.username} started break at ${now.toLocaleTimeString()}`);
+    console.log(`🟡 ${user.username} started break at ${now.toLocaleTimeString()}${report ? ' with progress report' : ''}`);
 }
 
-// Handle 再開 (Return from break)
-async function handleReturn(message, user, today, now) {
+// Handle 再開 (Return from break) - UPDATED with report parameter
+async function handleReturn(message, user, today, now, report = '') {
     const userId = user.id;
     
     if (!attendanceData[userId] || !attendanceData[userId][today] || attendanceData[userId][today].status !== 'break') {
@@ -344,6 +380,11 @@ async function handleReturn(message, user, today, now) {
         const breakStart = new Date(currentBreak.start);
         const breakDuration = (now - breakStart) / (1000 * 60);
         currentBreak.duration = Math.round(breakDuration);
+        
+        // Add return report if provided
+        if (report) {
+            currentBreak.returnReport = report;
+        }
     }
     
     attendanceData[userId][today].status = 'working';
@@ -359,14 +400,19 @@ async function handleReturn(message, user, today, now) {
         )
         .setTimestamp();
     
+    // Add report field if there's additional text
+    if (report) {
+        embed.addFields({ name: '復帰報告 (Return Report)', value: report, inline: false });
+    }
+    
     await message.reply({ embeds: [embed] });
     await message.channel.send('**📊 スプレッドシートに記録しました**');
     
-    console.log(`🟢 ${user.username} returned from break (${currentBreak.duration || 0} minutes)`);
+    console.log(`🟢 ${user.username} returned from break (${currentBreak.duration || 0} minutes)${report ? ' with return report' : ''}`);
 }
 
-// Handle 退勤 (End work)
-async function handleOff(message, user, today, now) {
+// Handle 退勤 (End work) - UPDATED with report parameter
+async function handleOff(message, user, today, now, report = '') {
     const userId = user.id;
     
     if (!attendanceData[userId] || !attendanceData[userId][today] || !attendanceData[userId][today].start) {
@@ -392,6 +438,14 @@ async function handleOff(message, user, today, now) {
     
     attendanceData[userId][today].end = now.toISOString();
     attendanceData[userId][today].status = 'finished';
+    
+    // Store the end-of-day report
+    if (report) {
+        if (!attendanceData[userId][today].reports) {
+            attendanceData[userId][today].reports = {};
+        }
+        attendanceData[userId][today].reports.checkOut = report;
+    }
     
     // Calculate total work time
     const startTime = new Date(attendanceData[userId][today].start);
@@ -423,10 +477,15 @@ async function handleOff(message, user, today, now) {
         )
         .setTimestamp();
     
+    // Add daily report field if there's additional text
+    if (report) {
+        embed.addFields({ name: '本日の業務報告 (Daily Work Report)', value: report, inline: false });
+    }
+    
     await message.reply({ embeds: [embed] });
     await message.channel.send('**📊 スプレッドシートに記録しました**');
     
-    console.log(`🔴 ${user.username} checked out - Total: ${workTime.toFixed(2)}h, Break: ${totalBreakTime}min`);
+    console.log(`🔴 ${user.username} checked out - Total: ${workTime.toFixed(2)}h, Break: ${totalBreakTime}min${report ? ' with daily report' : ''}`);
 }
 
 // Handle status check
@@ -707,7 +766,7 @@ app.get('/', (req, res) => {
     res.status(200).send(`
         <h1>Discord Company Bot 🤖</h1>
         <p>✅ Bot is running successfully!</p>
-        <p>📊 Attendance System: Active</p>
+        <p>📊 Attendance System: Active (with Report Support)</p>
         <p>🔧 Git Notifications: Active</p>
         <p>🌐 Auto-Translation: Active (MyMemory API)</p>
         <p>📡 GitHub webhook endpoint: /webhook/github</p>
