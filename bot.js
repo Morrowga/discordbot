@@ -239,21 +239,8 @@ async function handleTranslation(message) {
                 reason: 'Auto-translation for Japanese message'
             });
             
-            // Create translation embed
-            const embed = new EmbedBuilder()
-                .setColor('#4285f4') // Translation blue
-                .setTitle('🌐 English Translation')
-                .setDescription(translatedText)
-                .addFields(
-                    { name: '📝 Original (Japanese)', value: message.content.substring(0, 1000), inline: false },
-                    { name: '👤 Author', value: message.author.username, inline: true },
-                    { name: '⏰ Time', value: message.createdAt.toLocaleString('en-US'), inline: true }
-                )
-                .setFooter({ text: 'Powered by MyMemory API (Free)' })
-                .setTimestamp();
-            
-            // Send translation to thread
-            await thread.send({ embeds: [embed] });
+            // Send simple translation message (no embed, just the translation)
+            await thread.send(translatedText);
             
             console.log(`✅ Translation sent to thread for message from ${message.author.username}`);
         } else {
