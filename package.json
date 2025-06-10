@@ -1,7 +1,7 @@
 {
   "name": "discord-company-bot",
   "version": "1.0.0",
-  "description": "Discord bot for Japanese attendance tracking and Bitbucket git notifications",
+  "description": "Discord bot for Japanese attendance tracking, git notifications, and auto-translation",
   "main": "bot.js",
   "scripts": {
     "start": "node bot.js",
@@ -21,8 +21,8 @@
     "discord",
     "bot",
     "attendance",
-    "bitbucket",
-    "webhook",
+    "git",
+    "translation",
     "japanese"
   ]
 }

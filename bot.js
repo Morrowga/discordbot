@@ -1,7 +1,7 @@
 const { Client, GatewayIntentBits, EmbedBuilder } = require('discord.js');
 const express = require('express');
 const fs = require('fs').promises;
-const fetch = require('node-fetch');
+const https = require('https');
 
 // Bot configuration - Railway will use environment variables
 const config = {
@@ -37,43 +37,75 @@ const attendanceCommands = {
     '退勤': 'off'         // End work
 };
 
-// Translation function using LibreTranslate (FREE)
+// Translation function using LibreTranslate (FREE) - Using built-in HTTPS
 async function translateText(text, targetLang = 'en', sourceLang = 'ja') {
-    try {
-        console.log('🔄 Translating with LibreTranslate...');
-        
-        const response = await fetch('https://libretranslate.com/translate', {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({
+    return new Promise((resolve, reject) => {
+        try {
+            console.log('🔄 Translating with LibreTranslate...');
+            
+            const postData = JSON.stringify({
                 q: text,
                 source: sourceLang,
                 target: targetLang,
                 format: 'text'
-            }),
-            timeout: 15000 // 15 second timeout
-        });
-        
-        if (!response.ok) {
-            throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+            });
+            
+            const options = {
+                hostname: 'libretranslate.com',
+                port: 443,
+                path: '/translate',
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Content-Length': Buffer.byteLength(postData)
+                },
+                timeout: 15000
+            };
+            
+            const req = https.request(options, (res) => {
+                let data = '';
+                
+                res.on('data', (chunk) => {
+                    data += chunk;
+                });
+                
+                res.on('end', () => {
+                    try {
+                        const result = JSON.parse(data);
+                        
+                        if (result.translatedText) {
+                            console.log('✅ LibreTranslate translation successful');
+                            resolve(result.translatedText);
+                        } else {
+                            console.error('❌ No translation returned:', result);
+                            resolve(null);
+                        }
+                    } catch (parseError) {
+                        console.error('❌ JSON parse error:', parseError);
+                        resolve(null);
+                    }
+                });
+            });
+            
+            req.on('error', (error) => {
+                console.error('❌ LibreTranslate request error:', error.message);
+                resolve(null);
+            });
+            
+            req.on('timeout', () => {
+                console.error('❌ LibreTranslate request timeout');
+                req.destroy();
+                resolve(null);
+            });
+            
+            req.write(postData);
+            req.end();
+            
+        } catch (error) {
+            console.error('❌ LibreTranslate error:', error.message);
+            resolve(null);
         }
-        
-        const result = await response.json();
-        
-        if (result.translatedText) {
-            console.log('✅ LibreTranslate translation successful');
-            return result.translatedText;
-        } else {
-            console.error('❌ No translation returned:', result);
-            return null;
-        }
-        
-    } catch (error) {
-        console.error('❌ LibreTranslate error:', error.message);
-        return null;
-    }
+    });
 }
 
 // Detect if text contains Japanese characters
