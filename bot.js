@@ -37,27 +37,24 @@ const attendanceCommands = {
     '退勤': 'off'         // End work
 };
 
-// Translation function using LibreTranslate (FREE) - Using built-in HTTPS
+// Translation function using MyMemory API (FREE, no registration)
 async function translateText(text, targetLang = 'en', sourceLang = 'ja') {
     return new Promise((resolve, reject) => {
         try {
-            console.log('🔄 Translating with LibreTranslate...');
+            console.log('🔄 Translating with MyMemory API...');
             
-            const postData = JSON.stringify({
-                q: text,
-                source: sourceLang,
-                target: targetLang,
-                format: 'text'
-            });
+            // Encode the text for URL
+            const encodedText = encodeURIComponent(text);
+            const langPair = `${sourceLang}|${targetLang}`;
+            const path = `/get?q=${encodedText}&langpair=${langPair}`;
             
             const options = {
-                hostname: 'libretranslate.com',
+                hostname: 'api.mymemory.translated.net',
                 port: 443,
-                path: '/translate',
-                method: 'POST',
+                path: path,
+                method: 'GET',
                 headers: {
-                    'Content-Type': 'application/json',
-                    'Content-Length': Buffer.byteLength(postData)
+                    'User-Agent': 'Discord-Bot/1.0'
                 },
                 timeout: 15000
             };
@@ -73,9 +70,10 @@ async function translateText(text, targetLang = 'en', sourceLang = 'ja') {
                     try {
                         const result = JSON.parse(data);
                         
-                        if (result.translatedText) {
-                            console.log('✅ LibreTranslate translation successful');
-                            resolve(result.translatedText);
+                        if (result.responseData && result.responseData.translatedText) {
+                            const translatedText = result.responseData.translatedText;
+                            console.log('✅ MyMemory translation successful');
+                            resolve(translatedText);
                         } else {
                             console.error('❌ No translation returned:', result);
                             resolve(null);
@@ -88,21 +86,20 @@ async function translateText(text, targetLang = 'en', sourceLang = 'ja') {
             });
             
             req.on('error', (error) => {
-                console.error('❌ LibreTranslate request error:', error.message);
+                console.error('❌ MyMemory request error:', error.message);
                 resolve(null);
             });
             
             req.on('timeout', () => {
-                console.error('❌ LibreTranslate request timeout');
+                console.error('❌ MyMemory request timeout');
                 req.destroy();
                 resolve(null);
             });
             
-            req.write(postData);
             req.end();
             
         } catch (error) {
-            console.error('❌ LibreTranslate error:', error.message);
+            console.error('❌ MyMemory error:', error.message);
             resolve(null);
         }
     });
@@ -152,7 +149,8 @@ async function saveAttendanceData() {
 client.once('ready', async () => {
     console.log(`🤖 Bot logged in as ${client.user.tag}!`);
     console.log('🎌 日本の出勤システムが準備完了！(Japanese attendance system ready!)');
-    console.log('🔧 Bitbucket通知システムが準備完了！(Bitbucket notification system ready!)');
+    console.log('🔧 Git通知システムが準備完了！(Git notification system ready!)');
+    console.log('🌐 自動翻訳システムが準備完了！(Auto-translation system ready!)');
     console.log(`🌐 Webhook server running on port ${config.port}`);
     
     // Load attendance data
@@ -164,6 +162,7 @@ client.once('ready', async () => {
     console.log(`   Guild ID: ${config.guildId ? '✅ Set' : '❌ Missing'}`);
     console.log(`   Attendance Channel: ${config.attendanceChannelId ? '✅ Set' : '❌ Missing'}`);
     console.log(`   Git Channel: ${config.gitChannelId ? '✅ Set' : '❌ Missing'}`);
+    console.log(`   Translation API: ✅ MyMemory (No key required)`);
 });
 
 // =============================================================================
@@ -250,7 +249,7 @@ async function handleTranslation(message) {
                     { name: '👤 Author', value: message.author.username, inline: true },
                     { name: '⏰ Time', value: message.createdAt.toLocaleString('en-US'), inline: true }
                 )
-                .setFooter({ text: 'Powered by LibreTranslate (Free & Open Source)' })
+                .setFooter({ text: 'Powered by MyMemory API (Free)' })
                 .setTimestamp();
             
             // Send translation to thread
@@ -258,7 +257,7 @@ async function handleTranslation(message) {
             
             console.log(`✅ Translation sent to thread for message from ${message.author.username}`);
         } else {
-            console.log('⚠️ Translation failed or returned same text');
+            console.log('⚠️ MyMemory translation failed or returned same text');
         }
     } catch (error) {
         console.error('❌ Translation failed:', error);
@@ -730,6 +729,7 @@ app.get('/', (req, res) => {
         <p>✅ Bot is running successfully!</p>
         <p>📊 Attendance System: Active</p>
         <p>🔧 Git Notifications: Active</p>
+        <p>🌐 Auto-Translation: Active (MyMemory API)</p>
         <p>📡 GitHub webhook endpoint: /webhook/github</p>
         <p>📡 Bitbucket webhook endpoint: /webhook/bitbucket</p>
     `);
@@ -740,6 +740,7 @@ app.listen(config.port, () => {
     console.log(`🌐 Webhook server running on port ${config.port}`);
     console.log(`📡 GitHub webhook URL: http://localhost:${config.port}/webhook/github`);
     console.log(`📡 Bitbucket webhook URL: http://localhost:${config.port}/webhook/bitbucket`);
+    console.log(`🌐 Translation: MyMemory API (Free, no registration required)`);
 });
 
 // Start the Discord bot
