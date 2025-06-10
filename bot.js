@@ -232,17 +232,10 @@ async function handleTranslation(message) {
         const translatedText = await translateText(message.content);
         
         if (translatedText && translatedText !== message.content) {
-            // Create a thread from the original message
-            const thread = await message.startThread({
-                name: '🌐 Translation',
-                autoArchiveDuration: 60, // Auto-archive after 1 hour
-                reason: 'Auto-translation for Japanese message'
-            });
+            // Reply directly to the message with just the translation
+            await message.reply(translatedText);
             
-            // Send simple translation message (no embed, just the translation)
-            await thread.send(translatedText);
-            
-            console.log(`✅ Translation sent to thread for message from ${message.author.username}`);
+            console.log(`✅ Translation sent as reply for message from ${message.author.username}`);
         } else {
             console.log('⚠️ MyMemory translation failed or returned same text');
         }
