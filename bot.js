@@ -33,7 +33,7 @@ let attendanceData = {};
 async function translateText(text, targetLang = 'en', sourceLang = 'ja') {
     return new Promise((resolve, reject) => {
         try {
-            console.log('🔄 Translating with MyMemory API...');
+            console.log(`🔄 Translating with MyMemory API (${sourceLang} -> ${targetLang})...`);
             
             // Encode the text for URL
             const encodedText = encodeURIComponent(text);
@@ -64,7 +64,7 @@ async function translateText(text, targetLang = 'en', sourceLang = 'ja') {
                         
                         if (result.responseData && result.responseData.translatedText) {
                             const translatedText = result.responseData.translatedText;
-                            console.log('✅ MyMemory translation successful');
+                            console.log(`✅ MyMemory translation successful (${sourceLang} -> ${targetLang})`);
                             resolve(translatedText);
                         } else {
                             console.error('❌ No translation returned:', result);
@@ -102,6 +102,36 @@ function containsJapanese(text) {
     // Japanese character ranges: Hiragana, Katakana, Kanji
     const japaneseRegex = /[\u3040-\u309F\u30A0-\u30FF\u4E00-\u9FAF]/;
     return japaneseRegex.test(text);
+}
+
+// NEW: Detect if text contains primarily English characters (and no Japanese)
+function containsEnglish(text) {
+    // Check if text contains English letters and doesn't contain Japanese
+    const englishRegex = /[a-zA-Z]/;
+    const hasEnglish = englishRegex.test(text);
+    const hasJapanese = containsJapanese(text);
+    
+    // Return true only if it has English characters but no Japanese characters
+    // and the text is substantial enough (more than just numbers/symbols)
+    return hasEnglish && !hasJapanese && text.replace(/[^a-zA-Z]/g, '').length >= 3;
+}
+
+// NEW: Determine translation direction based on text content
+function getTranslationDirection(text) {
+    if (containsJapanese(text)) {
+        return {
+            sourceLang: 'ja',
+            targetLang: 'en',
+            direction: 'jp-to-en'
+        };
+    } else if (containsEnglish(text)) {
+        return {
+            sourceLang: 'en',
+            targetLang: 'ja',
+            direction: 'en-to-jp'
+        };
+    }
+    return null;
 }
 
 // Check if channel should have translation (exclude certain channels)
@@ -168,7 +198,9 @@ client.once('ready', async () => {
     console.log(`🤖 Bot logged in as ${client.user.tag}!`);
     console.log('🎌 日本の出勤システムが準備完了！(Japanese attendance system ready!)');
     console.log('🔧 Git通知システムが準備完了！(Git notification system ready!)');
-    console.log('🌐 自動翻訳システムが準備完了！(Auto-translation system ready!)');
+    console.log('🌐 双方向自動翻訳システムが準備完了！(Bidirectional auto-translation system ready!)');
+    console.log('   - 日本語 → 英語 (Japanese → English)');
+    console.log('   - 英語 → 日本語 (English → Japanese)');
     console.log(`🌐 Webhook server running on port ${config.port}`);
     
     // Load attendance data
@@ -187,7 +219,7 @@ client.once('ready', async () => {
 // ATTENDANCE SYSTEM (Japanese Commands) - UPDATED
 // =============================================================================
 
-// Listen for messages (attendance commands and translation) - UPDATED
+// Listen for messages (attendance commands and translation) - UPDATED WITH BIDIRECTIONAL TRANSLATION
 client.on('messageCreate', async message => {
     // Ignore bot messages
     if (message.author.bot) return;
@@ -198,7 +230,7 @@ client.on('messageCreate', async message => {
         return;
     }
     
-    // NEW: Check for attendance commands within the message content
+    // Check for attendance commands within the message content
     const attendanceInfo = checkForAttendanceCommand(message.content);
     
     if (attendanceInfo) {
@@ -231,38 +263,48 @@ client.on('messageCreate', async message => {
         return;
     }
     
-    // Handle Japanese translation for work channels
-    if (shouldTranslate(message.channel.id) && containsJapanese(message.content)) {
-        try {
-            await handleTranslation(message);
-        } catch (error) {
-            console.error('❌ Error handling translation:', error);
+    // UPDATED: Handle bidirectional translation for work channels
+    if (shouldTranslate(message.channel.id)) {
+        const translationDirection = getTranslationDirection(message.content);
+        
+        if (translationDirection) {
+            try {
+                await handleTranslation(message, translationDirection);
+            } catch (error) {
+                console.error('❌ Error handling translation:', error);
+            }
         }
     }
 });
 
-// Handle automatic translation in thread
-async function handleTranslation(message) {
+// UPDATED: Handle automatic bidirectional translation
+async function handleTranslation(message, translationDirection) {
     // Skip very short messages or attendance commands
     if (message.content.length < 3 || checkForAttendanceCommand(message.content)) {
         return;
     }
     
-    console.log(`🌐 Translating Japanese message from ${message.author.username} in #${message.channel.name}`);
+    const { sourceLang, targetLang, direction } = translationDirection;
+    const directionText = direction === 'jp-to-en' ? 'Japanese → English' : 'English → Japanese';
+    
+    console.log(`🌐 Translating message (${directionText}) from ${message.author.username} in #${message.channel.name}`);
     
     try {
-        const translatedText = await translateText(message.content);
+        const translatedText = await translateText(message.content, targetLang, sourceLang);
         
         if (translatedText && translatedText !== message.content) {
-            // Reply directly to the message with just the translation
-            await message.reply(translatedText);
+            // Create a simple embed to show the translation direction
+            let flagEmoji = direction === 'jp-to-en' ? '🇯🇵➡️🇺🇸' : '🇺🇸➡️🇯🇵';
             
-            console.log(`✅ Translation sent as reply for message from ${message.author.username}`);
+            // Reply directly to the message with the translation
+            await message.reply(`${flagEmoji} ${translatedText}`);
+            
+            console.log(`✅ Translation sent (${directionText}) for message from ${message.author.username}`);
         } else {
-            console.log('⚠️ MyMemory translation failed or returned same text');
+            console.log(`⚠️ MyMemory translation failed or returned same text (${directionText})`);
         }
     } catch (error) {
-        console.error('❌ Translation failed:', error);
+        console.error(`❌ Translation failed (${directionText}):`, error);
     }
 }
 
@@ -768,7 +810,9 @@ app.get('/', (req, res) => {
         <p>✅ Bot is running successfully!</p>
         <p>📊 Attendance System: Active (with Report Support)</p>
         <p>🔧 Git Notifications: Active</p>
-        <p>🌐 Auto-Translation: Active (MyMemory API)</p>
+        <p>🌐 Bidirectional Auto-Translation: Active (MyMemory API)</p>
+        <p>   - 🇯🇵➡️🇺🇸 Japanese → English</p>
+        <p>   - 🇺🇸➡️🇯🇵 English → Japanese</p>
         <p>📡 GitHub webhook endpoint: /webhook/github</p>
         <p>📡 Bitbucket webhook endpoint: /webhook/bitbucket</p>
     `);
@@ -779,7 +823,7 @@ app.listen(config.port, () => {
     console.log(`🌐 Webhook server running on port ${config.port}`);
     console.log(`📡 GitHub webhook URL: http://localhost:${config.port}/webhook/github`);
     console.log(`📡 Bitbucket webhook URL: http://localhost:${config.port}/webhook/bitbucket`);
-    console.log(`🌐 Translation: MyMemory API (Free, no registration required)`);
+    console.log(`🌐 Bidirectional Translation: MyMemory API (Free, no registration required)`);
 });
 
 // Start the Discord bot
