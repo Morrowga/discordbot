@@ -294,10 +294,10 @@ async function handleTranslation(message, translationDirection) {
         
         if (translatedText && translatedText !== message.content) {
             // Create a simple embed to show the translation direction
-            let flagEmoji = direction === 'jp-to-en' ? '🇯🇵➡️🇺🇸' : '🇺🇸➡️🇯🇵';
+            // let flagEmoji = direction === 'jp-to-en' ? '🇯🇵➡️🇺🇸' : '🇺🇸➡️🇯🇵';
             
             // Reply directly to the message with the translation
-            await message.reply(`${flagEmoji} ${translatedText}`);
+            await message.reply(`${translatedText}`);
             
             console.log(`✅ Translation sent (${directionText}) for message from ${message.author.username}`);
         } else {
